@@ -1,0 +1,177 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['plan', 'apply', 'destroy'],
+            description: 'Terraform action to perform'
+        )
+        string(
+            name: 'CUSTOMER_CONFIG',
+            defaultValue: 'customer-821706771879',
+            description: 'Customer configuration file name (without .tfvars)'
+        )
+        booleanParam(
+            name: 'AUTO_APPROVE',
+            defaultValue: false,
+            description: 'Auto approve terraform apply/destroy'
+        )
+    }
+    
+    environment {
+        AWS_REGION = 'eu-north-1'
+        SOURCE_ACCOUNT_ID = '047861165149'
+        TF_IN_AUTOMATION = 'true'
+        TF_INPUT = 'false'
+        TF_CLI_ARGS = '-no-color'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Validate Configuration') {
+            steps {
+                script {
+                    def configFile = "config/customers/${params.CUSTOMER_CONFIG}.tfvars"
+                    if (!fileExists(configFile)) {
+                        error("Customer configuration file not found: ${configFile}")
+                    }
+                    echo "Using configuration: ${configFile}"
+                }
+            }
+        }
+        
+        stage('Terraform Init') {
+            steps {
+                dir('terraform/environments/customer') {
+                    script {
+                        sh '''
+                            terraform init \
+                                -backend-config="bucket=terraform-state-${SOURCE_ACCOUNT_ID}" \
+                                -backend-config="key=customers/${CUSTOMER_CONFIG}/terraform.tfstate" \
+                                -backend-config="region=${AWS_REGION}" \
+                                -backend-config="encrypt=true"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Terraform Validate') {
+            steps {
+                dir('terraform/environments/customer') {
+                    sh 'terraform validate'
+                }
+            }
+        }
+        
+        stage('Terraform Plan') {
+            when {
+                expression { params.ACTION == 'plan' || params.ACTION == 'apply' }
+            }
+            steps {
+                dir('terraform/environments/customer') {
+                    script {
+                        withCredentials([
+                            string(credentialsId: 'terraform-external-id', variable: 'EXTERNAL_ID')
+                        ]) {
+                            sh """
+                                terraform plan \
+                                    -var-file=../../../config/customers/${params.CUSTOMER_CONFIG}.tfvars \
+                                    -var='external_id=${EXTERNAL_ID}' \
+                                    -out=tfplan
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Terraform Apply') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                script {
+                    if (params.AUTO_APPROVE) {
+                        dir('terraform/environments/customer') {
+                            sh 'terraform apply -auto-approve tfplan'
+                        }
+                    } else {
+                        input message: 'Approve terraform apply?', ok: 'Apply'
+                        dir('terraform/environments/customer') {
+                            sh 'terraform apply tfplan'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Terraform Destroy') {
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
+            steps {
+                script {
+                    if (params.AUTO_APPROVE) {
+                        dir('terraform/environments/customer') {
+                            withCredentials([
+                                string(credentialsId: 'terraform-external-id', variable: 'EXTERNAL_ID')
+                            ]) {
+                                sh """
+                                    terraform destroy \
+                                        -var-file=../../../config/customers/${params.CUSTOMER_CONFIG}.tfvars \
+                                        -var='external_id=${EXTERNAL_ID}' \
+                                        -auto-approve
+                                """
+                            }
+                        }
+                    } else {
+                        input message: 'Approve terraform destroy?', ok: 'Destroy'
+                        dir('terraform/environments/customer') {
+                            withCredentials([
+                                string(credentialsId: 'terraform-external-id', variable: 'EXTERNAL_ID')
+                            ]) {
+                                sh """
+                                    terraform destroy \
+                                        -var-file=../../../config/customers/${params.CUSTOMER_CONFIG}.tfvars \
+                                        -var='external_id=${EXTERNAL_ID}' \
+                                        -auto-approve
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Output Results') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                dir('terraform/environments/customer') {
+                    sh 'terraform output -json > outputs.json'
+                    archiveArtifacts artifacts: 'outputs.json', fingerprint: true
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "Terraform ${params.ACTION} completed successfully for ${params.CUSTOMER_CONFIG}"
+        }
+        failure {
+            echo "Terraform ${params.ACTION} failed for ${params.CUSTOMER_CONFIG}"
+        }
+    }
+}

@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'IAM Role for Cross-Account Terraform Deployment from Source Account'
+
+Parameters:
+  SourceAccountId:
+    Type: String
+    Default: 'YOUR_SOURCE_ACCOUNT_ID'
+    Description: Source AWS Account ID (Management Account)
+  
+  ExternalId:
+    Type: String
+    Default: 'YOUR_SECURE_EXTERNAL_ID'
+    Description: External ID for additional security
+    NoEcho: true
+  
+  CustomerName:
+    Type: String
+    Default: 'customer-demo'
+    Description: Customer name for resource naming
+
+Resources:
+  TerraformCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'TerraformCrossAccountRole-${CustomerName}'
+      Description: Role for cross-account Terraform deployment from source account
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${SourceAccountId}:root'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/PowerUserAccess'
+      Tags:
+        - Key: Name
+          Value: !Sub 'TerraformCrossAccountRole-${CustomerName}'
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: CrossAccountTerraformDeployment
+
+Outputs:
+  RoleArn:
+    Description: ARN of the created IAM role
+    Value: !GetAtt TerraformCrossAccountRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+  
+  RoleName:
+    Description: Name of the created IAM role
+    Value: !Ref TerraformCrossAccountRole
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleName'
+  
+  ExternalIdUsed:
+    Description: External ID used for role assumption
+    Value: !Ref ExternalId
