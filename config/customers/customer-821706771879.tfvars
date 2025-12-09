@@ -1,8 +1,9 @@
-# Customer Configuration Example
-# Copy this file and customize for your customer
+# Customer Configuration
+# Account ID: 821706771879
+# Region: eu-north-1
 
-customer_account_id = "CUSTOMER_ACCOUNT_ID"
-customer_name       = "customer-name"
+customer_account_id = "821706771879"
+customer_name       = "customer-demo"
 aws_region          = "eu-north-1"
 environment         = "production"
 
@@ -12,8 +13,8 @@ public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
 private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
 availability_zones   = ["eu-north-1a", "eu-north-1b"]
 
-# Security - IMPORTANT: Restrict RDP access to your IP range
-rdp_allowed_cidrs = ["YOUR_IP/32"]
+# Security - Restrict RDP access to your IP range
+rdp_allowed_cidrs = ["49.37.131.183/32"]
 
 # EC2 Configuration
 instance_type    = "t3.medium"
